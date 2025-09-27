@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title> Image Compressor </title>
+
+<!-- Libraries -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/browser-image-compression@1.0.16/dist/browser-image-compression.js"></script>
+
+<style>
+body { font-family: Arial, sans-serif; background: #f0f2f5; margin:0; padding:20px; }
+.container { max-width:700px; margin:auto; background:white; padding:25px; border-radius:12px; box-shadow:0 0 15px rgba(0,0,0,0.1);}
+h1{text-align:center;margin-bottom:20px;font-size:1.8rem;}
+.drop-area { border:2px dashed #007bff; border-radius:10px; padding:25px; text-align:center; color:#007bff; margin-bottom:15px; cursor:pointer; position:relative; transition:0.2s;}
+.drop-area.dragover{background:#e0f0ff;}
+.drop-area input[type=file]{position:absolute;width:100%;height:100%;opacity:0;top:0; left:0; cursor:pointer;}
+.slider-container, .format-container{margin-bottom:15px;}
+.slider-container input[type=range]{width:100%;}
+.image-info div{padding:5px; border-bottom:1px solid #eee; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap;}
+.image-info img{max-width:60px; max-height:60px; margin-right:10px; border-radius:4px; object-fit:cover;}
+.image-info span{flex:1; min-width:120px; word-break:break-word;}
+.image-info button{background:red;color:white;border:none;border-radius:4px;padding:4px 8px;cursor:pointer; margin-left:5px;}
+.image-info button:hover{background:#aa0000;}
+button#downloadBtn{width:100%; padding:12px; background:#007bff; color:white; font-size:16px; border:none; border-radius:8px; cursor:pointer; margin-top:15px;}
+button#downloadBtn:hover{background:#0056b3;}
+.ad-space{margin-top:20px; text-align:center;}
+
+/* Responsive */
+@media (max-width:600px){
+  .container{padding:15px;}
+  h1{font-size:1.5rem;}
+  .image-info img{max-width:50px; max-height:50px;}
+  .image-info span{min-width:100px;font-size:0.9rem;}
+  .image-info button{padding:3px 6px;font-size:0.8rem;}
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+<h1>Image Compressor</h1>
+
+<div id="dropArea" class="drop-area">
+Drag & Drop Images Here or Click to Select
+<input type="file" id="imageInput" multiple accept="image/*">
+</div>
+
+<div class="slider-container">
+<label for="quality">Quality: <span id="qualityVal">80%</span></label>
+<input type="range" id="quality" min="10" max="100" value="80">
+</div>
+
+<div class="format-container">
+<label for="format">Select Format:</label>
+<select id="format">
+<option value="auto">Original</option>
+<option value="image/jpeg">JPEG</option>
+<option value="image/png">PNG</option>
+<option value="image/webp">WebP</option>
+</select>
+</div>
+
+<div id="imageList" class="image-info"></div>
+
+<button id="downloadBtn">Download Compressed</button>
+
+<div class="ad-space">
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script>
+<ins class="adsbygoogle"
+     style="display:block"
+     data-ad-client="ca-pub-XXXXXXX"
+     data-ad-slot="XXXXXXX"
+     data-ad-format="auto"
+     data-full-width-responsive="true"></ins>
+<script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+</div>
+</div>
+
+<script>
+const dropArea=document.getElementById("dropArea");
+const imageInput=document.getElementById("imageInput");
+const qualitySlider=document.getElementById("quality");
+const qualityVal=document.getElementById("qualityVal");
+const imageList=document.getElementById("imageList");
+const downloadBtn=document.getElementById("downloadBtn");
+const formatSelect=document.getElementById("format");
+
+let images=[];
+let lastQuality=qualitySlider.value;
+let compressTimeout;
+
+// Slider with debounce
+qualitySlider.addEventListener("input", ()=>{
+  qualityVal.textContent=`${qualitySlider.value}%`;
+  if(compressTimeout) clearTimeout(compressTimeout);
+  compressTimeout = setTimeout(()=>{
+    if(lastQuality !== qualitySlider.value){
+      lastQuality = qualitySlider.value;
+      compressAllImages();
+    }
+  }, 300);
+});
+
+// Drag & Drop
+dropArea.addEventListener("dragover", e=>{e.preventDefault(); dropArea.classList.add("dragover");});
+dropArea.addEventListener("dragleave", e=>{dropArea.classList.remove("dragover");});
+dropArea.addEventListener("drop", e=>{
+  e.preventDefault();
+  dropArea.classList.remove("dragover");
+  handleFiles(e.dataTransfer.files);
+});
+
+// File input
+imageInput.addEventListener("change", e=>handleFiles(e.target.files));
+
+// Handle files
+function handleFiles(files){
+  const newImages=Array.from(files).map(file=>({
+    file,
+    compressed:null,
+    originalSize:(file.size/1024).toFixed(2),
+    compressedSize:'compressing...',
+    preview: URL.createObjectURL(file)
+  }));
+  images=images.concat(newImages);
+  renderImageList();
+  compressAllImages();
+}
+
+// Compress all images
+async function compressAllImages(){
+  const q=qualitySlider.value/100;
+  const selectedFormat=formatSelect.value;
+
+  images.forEach(img=>img.compressedSize='compressing...'); // temporary
+  renderImageList();
+
+  for(const img of images){
+    const options={maxSizeMB:1,maxWidthOrHeight:1920,initialQuality:q,useWebWorker:true};
+    if(selectedFormat!=='auto') options.fileType=selectedFormat;
+    const compressedFile=await imageCompression(img.file,options);
+    img.compressed=compressedFile;
+    img.compressedSize=(compressedFile.size/1024).toFixed(2); // KB
+    renderImageList(); // update each image size immediately after compression
+  }
+}
+
+// Render images
+function renderImageList(){
+  imageList.innerHTML="";
+  images.forEach((img,index)=>{
+    const div=document.createElement("div");
+    div.innerHTML=`<img src="${img.preview}" alt="preview">
+                   <span>${img.file.name}: ${img.originalSize} KB → ${img.compressedSize} KB</span>
+                   <button data-index="${index}">X</button>`;
+    imageList.appendChild(div);
+  });
+
+  // Remove button
+  const buttons=imageList.querySelectorAll("button");
+  buttons.forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const idx=parseInt(btn.getAttribute("data-index"));
+      URL.revokeObjectURL(images[idx].preview);
+      images.splice(idx,1);
+      renderImageList();
+    });
+  });
+}
+
+// Download
+downloadBtn.addEventListener("click", async ()=>{
+  if(images.length===0){ alert("No images selected!"); return; }
+  if(images.length===1){
+    const ext=getExtension(images[0].compressed);
+    saveAs(images[0].compressed, images[0].file.name.replace(/\.[^/.]+$/,"")+ext);
+  } else{
+    const zip=new JSZip();
+    images.forEach(img=>{
+      const ext=getExtension(img.compressed);
+      zip.file(img.file.name.replace(/\.[^/.]+$/,"")+ext,img.compressed);
+    });
+    const content=await zip.generateAsync({type:"blob"});
+    saveAs(content,"compressed_images.zip");
+  }
+});
+
+function getExtension(file){
+  const type=file.type;
+  if(type==='image/jpeg') return '.jpg';
+  if(type==='image/png') return '.png';
+  if(type==='image/webp') return '.webp';
+  return '';
+}
+</script>
+
+</body>
+</html>
